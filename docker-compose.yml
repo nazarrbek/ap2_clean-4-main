@@ -1,0 +1,79 @@
+services:
+  orders-db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: orders_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - orders_data:/var/lib/postgresql/data
+      - ./order-service/migrations/001_init.sql:/docker-entrypoint-initdb.d/001_init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  payments-db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: payments_db
+    ports:
+      - "5433:5432"
+    volumes:
+      - payments_data:/var/lib/postgresql/data
+      - ./payment-service/migrations/001_init.sql:/docker-entrypoint-initdb.d/001_init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  payment-service:
+    build:
+      context: .
+      dockerfile: payment-service/Dockerfile
+    ports:
+      - "8081:8081"
+      - "50051:50051"
+    environment:
+      DB_HOST: payments-db
+      DB_PORT: 5432
+      DB_USER: postgres
+      DB_PASSWORD: postgres
+      DB_NAME: payments_db
+      SERVER_PORT: 8081
+      GRPC_PORT: 50051
+    depends_on:
+      payments-db:
+        condition: service_healthy
+
+  order-service:
+    build:
+      context: .
+      dockerfile: order-service/Dockerfile
+    ports:
+      - "8080:8080"
+      - "50052:50052"
+    environment:
+      DB_HOST: orders-db
+      DB_PORT: 5432
+      DB_USER: postgres
+      DB_PASSWORD: postgres
+      DB_NAME: orders_db
+      SERVER_PORT: 8080
+      GRPC_PORT: 50052
+      PAYMENT_GRPC_ADDR: payment-service:50051
+    depends_on:
+      orders-db:
+        condition: service_healthy
+      payment-service:
+        condition: service_started
+
+volumes:
+  orders_data:
+  payments_data:

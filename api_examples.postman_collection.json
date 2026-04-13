@@ -1,0 +1,131 @@
+{
+  "info": {
+    "name": "AP2 Assignment 1 – Order & Payment",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Order Service",
+      "item": [
+        {
+          "name": "Create Order (normal – Paid)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"customer_id\": \"cust-001\",\n  \"item_name\": \"Laptop\",\n  \"amount\": 50000\n}"
+            },
+            "url": { "raw": "http://localhost:8080/orders", "host": ["localhost"], "port": "8080", "path": ["orders"] }
+          }
+        },
+        {
+          "name": "Create Order (amount>100000 – Declined/Failed)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"customer_id\": \"cust-002\",\n  \"item_name\": \"Yacht\",\n  \"amount\": 200000\n}"
+            },
+            "url": { "raw": "http://localhost:8080/orders", "host": ["localhost"], "port": "8080", "path": ["orders"] }
+          }
+        },
+        {
+          "name": "Create Order with Idempotency Key (Bonus)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Idempotency-Key", "value": "unique-key-abc-123" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"customer_id\": \"cust-001\",\n  \"item_name\": \"Laptop\",\n  \"amount\": 50000\n}"
+            },
+            "url": { "raw": "http://localhost:8080/orders", "host": ["localhost"], "port": "8080", "path": ["orders"] }
+          }
+        },
+        {
+          "name": "Create Order (invalid amount – 400)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"customer_id\": \"cust-001\",\n  \"item_name\": \"Free Item\",\n  \"amount\": 0\n}"
+            },
+            "url": { "raw": "http://localhost:8080/orders", "host": ["localhost"], "port": "8080", "path": ["orders"] }
+          }
+        },
+        {
+          "name": "Get Order by ID",
+          "request": {
+            "method": "GET",
+            "url": { "raw": "http://localhost:8080/orders/REPLACE_WITH_ORDER_ID", "host": ["localhost"], "port": "8080", "path": ["orders", "REPLACE_WITH_ORDER_ID"] }
+          }
+        },
+        {
+          "name": "Cancel Order (Pending → Cancelled)",
+          "request": {
+            "method": "PATCH",
+            "url": { "raw": "http://localhost:8080/orders/REPLACE_WITH_PENDING_ORDER_ID/cancel", "host": ["localhost"], "port": "8080", "path": ["orders", "REPLACE_WITH_PENDING_ORDER_ID", "cancel"] }
+          }
+        },
+        {
+          "name": "Cancel Paid Order (409 Conflict)",
+          "request": {
+            "method": "PATCH",
+            "url": { "raw": "http://localhost:8080/orders/REPLACE_WITH_PAID_ORDER_ID/cancel", "host": ["localhost"], "port": "8080", "path": ["orders", "REPLACE_WITH_PAID_ORDER_ID", "cancel"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Payment Service",
+      "item": [
+        {
+          "name": "Authorize Payment (direct)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"order_id\": \"some-order-id\",\n  \"amount\": 15000\n}"
+            },
+            "url": { "raw": "http://localhost:8081/payments", "host": ["localhost"], "port": "8081", "path": ["payments"] }
+          }
+        },
+        {
+          "name": "Authorize Payment – Declined (amount > 100000)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"order_id\": \"some-order-id-2\",\n  \"amount\": 150000\n}"
+            },
+            "url": { "raw": "http://localhost:8081/payments", "host": ["localhost"], "port": "8081", "path": ["payments"] }
+          }
+        },
+        {
+          "name": "Get Payment by Order ID",
+          "request": {
+            "method": "GET",
+            "url": { "raw": "http://localhost:8081/payments/REPLACE_WITH_ORDER_ID", "host": ["localhost"], "port": "8081", "path": ["payments", "REPLACE_WITH_ORDER_ID"] }
+          }
+        }
+      ]
+    }
+  ]
+}
