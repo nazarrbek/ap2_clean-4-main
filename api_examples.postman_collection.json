@@ -1,0 +1,96 @@
+{
+  "info": {
+    "name": "AP2 Assignment 4 – Caching & Background Jobs",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Order Service (port 8080)",
+      "item": [
+        {
+          "name": "Create Order",
+          "request": {
+            "method": "POST",
+            "url": "http://localhost:8080/orders",
+            "header": [{"key": "Content-Type", "value": "application/json"}],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"customer_id\": \"cust-001\",\n  \"item_name\": \"MacBook Pro\",\n  \"amount\": 2499.99\n}"
+            }
+          }
+        },
+        {
+          "name": "Get Order by ID (cache-aside demo)",
+          "request": {
+            "method": "GET",
+            "url": "http://localhost:8080/orders/1"
+          }
+        },
+        {
+          "name": "Get Order by ID (second call – cache HIT)",
+          "request": {
+            "method": "GET",
+            "url": "http://localhost:8080/orders/1"
+          }
+        },
+        {
+          "name": "List Recent Orders",
+          "request": {
+            "method": "GET",
+            "url": "http://localhost:8080/orders"
+          }
+        },
+        {
+          "name": "Update Order Status (triggers cache invalidation)",
+          "request": {
+            "method": "PATCH",
+            "url": "http://localhost:8080/orders/1/status",
+            "header": [{"key": "Content-Type", "value": "application/json"}],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"paid\",\n  \"payment_id\": \"pay-001\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Rate Limit Test – exceed 10 req/min",
+          "request": {
+            "method": "GET",
+            "url": "http://localhost:8080/orders"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Payment Service (port 8081)",
+      "item": [
+        {
+          "name": "Process Payment (triggers notification job)",
+          "request": {
+            "method": "POST",
+            "url": "http://localhost:8081/payments",
+            "header": [{"key": "Content-Type", "value": "application/json"}],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"order_id\": 1,\n  \"customer_email\": \"john@example.com\",\n  \"amount\": 2499.99\n}"
+            }
+          }
+        },
+        {
+          "name": "Get Payment by ID",
+          "request": {
+            "method": "GET",
+            "url": "http://localhost:8081/payments/1"
+          }
+        },
+        {
+          "name": "Get Payment by Order ID",
+          "request": {
+            "method": "GET",
+            "url": "http://localhost:8081/payments/order/1"
+          }
+        }
+      ]
+    }
+  ]
+}

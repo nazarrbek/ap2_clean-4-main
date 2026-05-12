@@ -1,0 +1,154 @@
+networks:
+  ap2_network:
+    driver: bridge
+
+services:
+  # ── Infrastructure ───────────────────────────────────────────────────────────
+
+  redis:
+    image: redis:7-alpine
+    container_name: ap2_redis
+    restart: unless-stopped
+    networks:
+      - ap2_network
+    ports:
+      - "6380:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    container_name: ap2_rabbitmq
+    restart: unless-stopped
+    networks:
+      - ap2_network
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    environment:
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  orders-db:
+    image: postgres:16-alpine
+    container_name: ap2_orders_db
+    restart: unless-stopped
+    networks:
+      - ap2_network
+    ports:
+      - "5434:5432"
+    environment:
+      POSTGRES_DB: orders
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    volumes:
+      - orders_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d orders"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  payments-db:
+    image: postgres:16-alpine
+    container_name: ap2_payments_db
+    restart: unless-stopped
+    networks:
+      - ap2_network
+    ports:
+      - "5433:5432"
+    environment:
+      POSTGRES_DB: payments
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    volumes:
+      - payments_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d payments"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # ── Microservices ─────────────────────────────────────────────────────────────
+
+  order-service:
+    build:
+      context: ./order-service
+      dockerfile: Dockerfile
+    container_name: ap2_order_service
+    restart: unless-stopped
+    networks:
+      - ap2_network
+    ports:
+      - "8080:8080"
+    env_file:
+      - .env
+    environment:
+      DB_HOST: ap2_orders_db
+      DB_PORT: 5432
+      DB_NAME: orders
+      REDIS_ADDR: ap2_redis:6379
+      HTTP_PORT: 8080
+    depends_on:
+      orders-db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  payment-service:
+    build:
+      context: ./payment-service
+      dockerfile: Dockerfile
+    container_name: ap2_payment_service
+    restart: unless-stopped
+    networks:
+      - ap2_network
+    ports:
+      - "8081:8081"
+    env_file:
+      - .env
+    environment:
+      DB_HOST: ap2_payments_db
+      DB_PORT: 5432
+      DB_NAME: payments
+      RABBITMQ_URL: amqp://guest:guest@ap2_rabbitmq:5672/
+      HTTP_PORT: 8081
+    depends_on:
+      payments-db:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+
+  notification-service:
+    build:
+      context: ./notification-service
+      dockerfile: Dockerfile
+    container_name: ap2_notification_service
+    restart: unless-stopped
+    networks:
+      - ap2_network
+    env_file:
+      - .env
+    environment:
+      REDIS_ADDR: ap2_redis:6379
+      RABBITMQ_URL: amqp://guest:guest@ap2_rabbitmq:5672/
+    depends_on:
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+
+volumes:
+  redis_data:
+  orders_db_data:
+  payments_db_data:
