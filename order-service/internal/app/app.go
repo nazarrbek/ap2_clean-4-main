@@ -29,7 +29,6 @@ type App struct {
 }
 
 func NewApp(db *sql.DB, paymentGRPCAddr string) (*App, error) {
-	// ── Redis ────────────────────────────────────────────────────────────
 	redisClient, err := newRedisClient()
 	if err != nil {
 		return nil, fmt.Errorf("redis: %w", err)
@@ -38,7 +37,6 @@ func NewApp(db *sql.DB, paymentGRPCAddr string) (*App, error) {
 	cacheTTL := parseDuration(os.Getenv("CACHE_TTL"), 5*time.Minute)
 	orderCache := cache.NewRedisOrderCache(redisClient, cacheTTL)
 
-	// ── Repository & Use Case ────────────────────────────────────────────
 	orderRepo := repository.NewPostgresOrderRepository(db)
 
 	paymentClient, err := ordergrpc.NewPaymentGRPCClient(paymentGRPCAddr, 2*time.Second)
@@ -48,11 +46,9 @@ func NewApp(db *sql.DB, paymentGRPCAddr string) (*App, error) {
 
 	orderUC := usecase.NewOrderUseCase(orderRepo, orderCache, paymentClient)
 
-	// ── HTTP ─────────────────────────────────────────────────────────────
 	handler := orderhttp.NewOrderHandler(orderUC)
 	router := gin.Default()
 
-	// Bonus: Rate limiter middleware (10 req/min per IP by default)
 	rlLimit := parseInt(os.Getenv("RATE_LIMIT_REQUESTS"), 10)
 	rlWindow := parseDuration(os.Getenv("RATE_LIMIT_WINDOW"), time.Minute)
 	rateLimiter := middleware.NewRateLimiter(redisClient, rlLimit, rlWindow)
@@ -60,7 +56,6 @@ func NewApp(db *sql.DB, paymentGRPCAddr string) (*App, error) {
 
 	handler.RegisterRoutes(router)
 
-	// ── gRPC ─────────────────────────────────────────────────────────────
 	orderStreamServer := ordergrpc.NewOrderGRPCServer(orderUC)
 	grpcServer := grpc.NewServer()
 	orderpb.RegisterOrderServiceServer(grpcServer, orderStreamServer)

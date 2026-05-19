@@ -1,10 +1,9 @@
-FROM golang:1.22-alpine AS builder
-WORKDIR /app
-COPY notification-service/go.mod ./notification-service/
+FROM golang:1.24-alpine AS builder
+RUN apk add --no-cache ca-certificates git
 WORKDIR /app/notification-service
-RUN go mod tidy && go mod download
-COPY notification-service ./
-RUN go build -o /app/notification-service-bin ./cmd/notification-service
+COPY notification-service .
+RUN GOSUMDB=off go mod graph > /dev/null 2>&1 || true && \
+    go build -mod=mod -o /app/notification-service-bin ./cmd/notification-service
 
 FROM alpine:3.19
 WORKDIR /app

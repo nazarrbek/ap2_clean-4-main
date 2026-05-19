@@ -1,10 +1,10 @@
-FROM golang:1.22-alpine AS builder
+FROM golang:1.24-alpine AS builder
+RUN apk add --no-cache ca-certificates git
 WORKDIR /app
 COPY payment-contract ./payment-contract
-COPY payment-service/go.mod ./payment-service/
+COPY payment-service ./payment-service
 WORKDIR /app/payment-service
-RUN go mod tidy && go mod download
-COPY payment-service ./
+RUN go mod download
 RUN go build -o /app/payment-service-bin ./cmd/payment-service
 
 FROM alpine:3.19

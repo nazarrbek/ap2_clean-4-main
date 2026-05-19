@@ -20,14 +20,12 @@ const (
 	routingKey   = "payment.completed"
 )
 
-// Consumer listens to the payment.completed queue.
 type Consumer struct {
 	conn    *amqp.Connection
 	channel *amqp.Channel
 	uc      *usecase.NotificationUseCase
 }
 
-// NewConsumer dials RabbitMQ and sets up all topology (exchange, DLX, DLQ, queue).
 func NewConsumer(amqpURL string, uc *usecase.NotificationUseCase) (*Consumer, error) {
 	conn, err := amqp.Dial(amqpURL)
 	if err != nil {
@@ -46,7 +44,6 @@ func NewConsumer(amqpURL string, uc *usecase.NotificationUseCase) (*Consumer, er
 		return nil, err
 	}
 
-	// Process one message at a time (fair dispatch)
 	if err := ch.Qos(1, 0, false); err != nil {
 		return nil, fmt.Errorf("set qos: %w", err)
 	}
@@ -78,12 +75,11 @@ func declareToplogy(ch *amqp.Channel) error {
 	return nil
 }
 
-// Run starts consuming messages until ctx is cancelled.
 func (c *Consumer) Run(ctx context.Context) error {
 	msgs, err := c.channel.Consume(
 		queueName,
-		"",    // consumer tag
-		false, // auto-ack = false  ← manual ACK
+		"",
+		false,
 		false, false, false, nil,
 	)
 	if err != nil {
@@ -95,12 +91,12 @@ func (c *Consumer) Run(ctx context.Context) error {
 	for {
 		select {
 		case <-ctx.Done():
-			log.Println("[Consumer] Context cancelled, stopping.")
+			log.Println("[Consumer] context cancelled, stopping")
 			return nil
 
 		case msg, ok := <-msgs:
 			if !ok {
-				log.Println("[Consumer] Channel closed.")
+				log.Println("[Consumer] channel closed")
 				return nil
 			}
 			c.handleDelivery(ctx, msg)
@@ -108,42 +104,36 @@ func (c *Consumer) Run(ctx context.Context) error {
 	}
 }
 
-// handleDelivery processes a single RabbitMQ message.
-// Retry logic with exponential backoff is handled INSIDE the use-case layer.
-// If all retries are exhausted, we NACK (→ DLQ). If duplicate, we ACK silently.
 func (c *Consumer) handleDelivery(ctx context.Context, msg amqp.Delivery) {
 	var event domain.PaymentEvent
 	if err := json.Unmarshal(msg.Body, &event); err != nil {
-		log.Printf("[Consumer] Bad payload: %v – sending to DLQ", err)
-		_ = msg.Nack(false, false) // malformed → DLQ
+		log.Printf("[Consumer] bad payload: %v", err)
+		_ = msg.Nack(false, false)
 		return
 	}
 
-	// Fallback: use EventID as PaymentID if not set (backwards compat)
 	if event.PaymentID == "" {
 		event.PaymentID = event.EventID
 	}
 
 	sent, err := c.uc.Handle(ctx, event)
 	if err != nil {
-		log.Printf("[Consumer] All retries exhausted for payment %s: %v – sending to DLQ",
+		log.Printf("[Consumer] retries exhausted for payment %s: %v",
 			event.PaymentID, err)
-		_ = msg.Nack(false, false) // → DLQ for manual inspection
+		_ = msg.Nack(false, false)
 		return
 	}
 
 	if !sent {
-		log.Printf("[Consumer] Duplicate event for payment %s – ACK without action", event.PaymentID)
+		log.Printf("[Consumer] duplicate event for payment %s", event.PaymentID)
 	} else {
-		log.Printf("[Consumer] ✓ Notification sent for Order #%s (payment %s, $%.2f to %s)",
+		log.Printf("[Consumer] notification sent for order %s (payment %s, $%.2f to %s)",
 			event.OrderID, event.PaymentID, float64(event.Amount)/100.0, event.CustomerEmail)
 	}
 
-	// ACK only after successful processing (at-least-once semantics)
 	_ = msg.Ack(false)
 }
 
-// Close gracefully closes channel and connection.
 func (c *Consumer) Close() {
 	if c.channel != nil {
 		_ = c.channel.Close()
@@ -151,5 +141,5 @@ func (c *Consumer) Close() {
 	if c.conn != nil {
 		_ = c.conn.Close()
 	}
-	log.Println("[Consumer] RabbitMQ connection closed.")
+	log.Println("[Consumer] RabbitMQ connection closed")
 }

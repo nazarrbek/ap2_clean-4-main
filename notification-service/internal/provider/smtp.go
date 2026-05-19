@@ -9,8 +9,6 @@ import (
 	"os"
 )
 
-// SMTPProvider is the real adapter for sending emails via SMTP (e.g. Gmail, Mailjet SMTP relay).
-// Configuration is injected via environment variables, never hardcoded.
 type SMTPProvider struct {
 	host     string
 	port     string
@@ -19,18 +17,16 @@ type SMTPProvider struct {
 	from     string
 }
 
-// NewSMTPProvider reads SMTP configuration from environment variables.
 func NewSMTPProvider() *SMTPProvider {
 	return &SMTPProvider{
 		host:     getEnvOrDefault("SMTP_HOST", "smtp.mailjet.com"),
 		port:     getEnvOrDefault("SMTP_PORT", "587"),
-		username: os.Getenv("SMTP_USERNAME"), // Mailjet API Key
-		password: os.Getenv("SMTP_PASSWORD"), // Mailjet Secret Key
+		username: os.Getenv("SMTP_USERNAME"),
+		password: os.Getenv("SMTP_PASSWORD"),
 		from:     getEnvOrDefault("SMTP_FROM", "noreply@example.com"),
 	}
 }
 
-// Send dispatches a real email via SMTP with STARTTLS.
 func (p *SMTPProvider) Send(_ context.Context, msg EmailMessage) error {
 	addr := net.JoinHostPort(p.host, p.port)
 
@@ -43,7 +39,6 @@ func (p *SMTPProvider) Send(_ context.Context, msg EmailMessage) error {
 
 	conn, err := tls.Dial("tcp", addr, tlsCfg)
 	if err != nil {
-		// Fallback: plain connection with STARTTLS (port 587)
 		plainConn, err2 := smtp.Dial(addr)
 		if err2 != nil {
 			return fmt.Errorf("smtp dial: %w", err2)
@@ -68,7 +63,7 @@ func (p *SMTPProvider) Send(_ context.Context, msg EmailMessage) error {
 }
 
 func sendViaSMTPClient(client *smtp.Client, from string, msg EmailMessage) error {
-	defer client.Quit() //nolint:errcheck
+	defer client.Quit()
 
 	if err := client.Mail(from); err != nil {
 		return fmt.Errorf("smtp MAIL: %w", err)
@@ -81,7 +76,7 @@ func sendViaSMTPClient(client *smtp.Client, from string, msg EmailMessage) error
 	if err != nil {
 		return fmt.Errorf("smtp DATA: %w", err)
 	}
-	defer wc.Close() //nolint:errcheck
+	defer wc.Close()
 
 	body := fmt.Sprintf("From: %s\r\nTo: %s\r\nSubject: %s\r\n\r\n%s",
 		from, msg.To, msg.Subject, msg.Body)

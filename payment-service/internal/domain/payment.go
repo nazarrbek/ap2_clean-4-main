@@ -6,7 +6,7 @@ type Payment struct {
 	ID            string
 	OrderID       string
 	TransactionID string
-	Amount        int64 // Amount in cents
+	Amount        int64
 	Status        string
 }
 
@@ -14,7 +14,6 @@ const (
 	StatusAuthorized = "Authorized"
 	StatusDeclined   = "Declined"
 
-	// MaxAmount: if amount > 100000 (i.e. > 1000 units), decline
 	MaxAmount = int64(100000)
 )
 

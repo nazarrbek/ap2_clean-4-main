@@ -14,7 +14,6 @@ const (
 	routingKey   = "payment.completed"
 )
 
-// PaymentEvent is the message schema published to the broker.
 type PaymentEvent struct {
 	EventID       string `json:"event_id"`
 	OrderID       string `json:"order_id"`
@@ -23,13 +22,11 @@ type PaymentEvent struct {
 	Status        string `json:"status"`
 }
 
-// Publisher publishes payment events to RabbitMQ.
 type Publisher struct {
 	conn    *amqp.Connection
 	channel *amqp.Channel
 }
 
-// NewPublisher dials RabbitMQ and declares the exchange.
 func NewPublisher(amqpURL string) (*Publisher, error) {
 	conn, err := amqp.Dial(amqpURL)
 	if err != nil {
@@ -42,11 +39,10 @@ func NewPublisher(amqpURL string) (*Publisher, error) {
 		return nil, fmt.Errorf("open channel: %w", err)
 	}
 
-	// Declare durable exchange so it survives broker restarts
 	if err := ch.ExchangeDeclare(
 		exchangeName,
 		"direct",
-		true,  // durable
+		true, // durable
 		false, false, false, nil,
 	); err != nil {
 		ch.Close()
@@ -54,7 +50,6 @@ func NewPublisher(amqpURL string) (*Publisher, error) {
 		return nil, fmt.Errorf("declare exchange: %w", err)
 	}
 
-	// Enable publisher confirms for reliability
 	if err := ch.Confirm(false); err != nil {
 		ch.Close()
 		conn.Close()
@@ -65,7 +60,6 @@ func NewPublisher(amqpURL string) (*Publisher, error) {
 	return &Publisher{conn: conn, channel: ch}, nil
 }
 
-// Publish sends a PaymentEvent to the broker and waits for broker confirmation.
 func (p *Publisher) Publish(ctx context.Context, event PaymentEvent) error {
 	body, err := json.Marshal(event)
 	if err != nil {
@@ -80,7 +74,7 @@ func (p *Publisher) Publish(ctx context.Context, event PaymentEvent) error {
 		false, false,
 		amqp.Publishing{
 			ContentType:  "application/json",
-			DeliveryMode: amqp.Persistent, // survive broker restart
+			DeliveryMode: amqp.Persistent,
 			Body:         body,
 		},
 	)
@@ -88,7 +82,6 @@ func (p *Publisher) Publish(ctx context.Context, event PaymentEvent) error {
 		return fmt.Errorf("publish: %w", err)
 	}
 
-	// Wait for broker ACK (publisher confirm)
 	select {
 	case confirm := <-confirms:
 		if !confirm.Ack {
@@ -102,7 +95,6 @@ func (p *Publisher) Publish(ctx context.Context, event PaymentEvent) error {
 	return nil
 }
 
-// Close gracefully closes channel and connection.
 func (p *Publisher) Close() {
 	if p.channel != nil {
 		_ = p.channel.Close()

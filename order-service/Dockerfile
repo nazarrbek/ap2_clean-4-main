@@ -1,11 +1,11 @@
-FROM golang:1.22-alpine AS builder
+FROM golang:1.24-alpine AS builder
+RUN apk add --no-cache ca-certificates git
 WORKDIR /app
 COPY order-contract ./order-contract
 COPY payment-contract ./payment-contract
-COPY order-service/go.mod ./order-service/
+COPY order-service ./order-service
 WORKDIR /app/order-service
-RUN go mod tidy && go mod download
-COPY order-service ./
+RUN go mod download
 RUN go build -o /app/order-service-bin ./cmd/order-service
 
 FROM alpine:3.19

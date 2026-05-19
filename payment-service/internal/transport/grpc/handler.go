@@ -28,9 +28,6 @@ func (s *PaymentGRPCServer) ProcessPayment(ctx context.Context, req *paymentpb.P
 		return nil, grpcstatus.Error(codes.InvalidArgument, "order_id is required")
 	}
 
-	// CustomerEmail is not in the proto contract (legacy field).
-	// The event will be published with an empty email when called via gRPC.
-	// Callers that know the email should use the HTTP endpoint instead.
 	output, err := s.uc.Authorize(ctx, usecase.AuthorizeInput{
 		OrderID:       req.GetOrderId(),
 		Amount:        req.GetAmount(),

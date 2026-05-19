@@ -37,12 +37,10 @@ func (uc *PaymentUseCase) Authorize(ctx context.Context, input AuthorizeInput) (
 	payment.ID = generateID()
 	payment.TransactionID = generateTransactionID()
 
-	// Persist first (DB transaction committed)
 	if err := uc.repo.Create(ctx, payment); err != nil {
 		return nil, err
 	}
 
-	// Only publish after successful DB commit
 	event := messaging.PaymentEvent{
 		EventID:       payment.ID,
 		OrderID:       payment.OrderID,

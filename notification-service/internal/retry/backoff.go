@@ -6,14 +6,12 @@ import (
 	"time"
 )
 
-// Config holds retry policy settings.
 type Config struct {
 	MaxAttempts int
-	BaseDelay   time.Duration // first retry delay (e.g. 2s)
-	MaxDelay    time.Duration // cap on backoff (e.g. 30s)
+	BaseDelay   time.Duration
+	MaxDelay    time.Duration
 }
 
-// DefaultConfig returns a sensible production retry policy.
 func DefaultConfig() Config {
 	return Config{
 		MaxAttempts: 5,
@@ -22,9 +20,6 @@ func DefaultConfig() Config {
 	}
 }
 
-// Do executes fn with exponential backoff retries.
-// Delays: 2s, 4s, 8s, 16s … capped at MaxDelay.
-// Returns the last error if all attempts fail.
 func Do(ctx context.Context, cfg Config, name string, fn func() error) error {
 	var lastErr error
 	delay := cfg.BaseDelay
@@ -44,7 +39,6 @@ func Do(ctx context.Context, cfg Config, name string, fn func() error) error {
 			break
 		}
 
-		// Exponential backoff with ceiling
 		select {
 		case <-ctx.Done():
 			log.Printf("[Retry] %s: context cancelled, stopping retries", name)
@@ -52,7 +46,6 @@ func Do(ctx context.Context, cfg Config, name string, fn func() error) error {
 		case <-time.After(delay):
 		}
 
-		// Double the delay for next attempt, capped at MaxDelay
 		delay *= 2
 		if delay > cfg.MaxDelay {
 			delay = cfg.MaxDelay

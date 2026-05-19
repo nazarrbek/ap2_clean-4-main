@@ -11,8 +11,6 @@ type PaymentRepository interface {
 	GetByOrderID(ctx context.Context, orderID string) (*domain.Payment, error)
 }
 
-// EventPublisher is the messaging port. The usecase depends on this interface,
-// not on RabbitMQ directly (Separation of Concerns / Clean Architecture).
 type EventPublisher interface {
 	Publish(ctx context.Context, event messaging.PaymentEvent) error
 }
