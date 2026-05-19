@@ -1,9 +1,37 @@
 services:
+  # ── Infrastructure ──────────────────────────────────────────────
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    environment:
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
   orders-db:
     image: postgres:16-alpine
     environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
       POSTGRES_DB: orders_db
     ports:
       - "5432:5432"
@@ -19,8 +47,8 @@ services:
   payments-db:
     image: postgres:16-alpine
     environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
       POSTGRES_DB: payments_db
     ports:
       - "5433:5432"
@@ -33,6 +61,7 @@ services:
       timeout: 5s
       retries: 5
 
+  # ── Services ────────────────────────────────────────────────────
   payment-service:
     build:
       context: .
@@ -43,13 +72,16 @@ services:
     environment:
       DB_HOST: payments-db
       DB_PORT: 5432
-      DB_USER: postgres
-      DB_PASSWORD: postgres
+      DB_USER: ${POSTGRES_USER:-postgres}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
       DB_NAME: payments_db
       SERVER_PORT: 8081
       GRPC_PORT: 50051
+      AMQP_URL: amqp://guest:guest@rabbitmq:5672/
     depends_on:
       payments-db:
+        condition: service_healthy
+      rabbitmq:
         condition: service_healthy
 
   order-service:
@@ -62,18 +94,56 @@ services:
     environment:
       DB_HOST: orders-db
       DB_PORT: 5432
-      DB_USER: postgres
-      DB_PASSWORD: postgres
+      DB_USER: ${POSTGRES_USER:-postgres}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
       DB_NAME: orders_db
       SERVER_PORT: 8080
       GRPC_PORT: 50052
       PAYMENT_GRPC_ADDR: payment-service:50051
+      # Redis (cache-aside)
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      CACHE_TTL: 5m
+      # Rate limiter (Bonus)
+      RATE_LIMIT_REQUESTS: 10
+      RATE_LIMIT_WINDOW: 1m
     depends_on:
       orders-db:
         condition: service_healthy
       payment-service:
         condition: service_started
+      redis:
+        condition: service_healthy
+
+  notification-service:
+    build:
+      context: .
+      dockerfile: notification-service/Dockerfile
+    environment:
+      AMQP_URL: amqp://guest:guest@rabbitmq:5672/
+      # Redis (idempotency)
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      IDEMPOTENCY_TTL: 24h
+      # Provider: SIMULATED or REAL
+      PROVIDER_MODE: ${PROVIDER_MODE:-SIMULATED}
+      # SMTP (used when PROVIDER_MODE=REAL)
+      SMTP_HOST: ${SMTP_HOST:-smtp.mailjet.com}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USERNAME: ${SMTP_USERNAME:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_FROM: ${SMTP_FROM:-noreply@example.com}
+      # Retry policy
+      RETRY_MAX_ATTEMPTS: ${RETRY_MAX_ATTEMPTS:-5}
+      RETRY_BASE_DELAY: ${RETRY_BASE_DELAY:-2s}
+      RETRY_MAX_DELAY: ${RETRY_MAX_DELAY:-30s}
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
 
 volumes:
   orders_data:
   payments_data:
+  redis_data:

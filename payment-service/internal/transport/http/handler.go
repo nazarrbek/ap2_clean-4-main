@@ -23,8 +23,9 @@ func (h *PaymentHandler) RegisterRoutes(r *gin.Engine) {
 }
 
 type authorizeRequest struct {
-	OrderID string `json:"order_id" binding:"required"`
-	Amount  int64  `json:"amount" binding:"required"`
+	OrderID       string `json:"order_id" binding:"required"`
+	Amount        int64  `json:"amount" binding:"required"`
+	CustomerEmail string `json:"customer_email"`
 }
 
 func (h *PaymentHandler) Authorize(c *gin.Context) {
@@ -35,8 +36,9 @@ func (h *PaymentHandler) Authorize(c *gin.Context) {
 	}
 
 	output, err := h.uc.Authorize(c.Request.Context(), usecase.AuthorizeInput{
-		OrderID: req.OrderID,
-		Amount:  req.Amount,
+		OrderID:       req.OrderID,
+		Amount:        req.Amount,
+		CustomerEmail: req.CustomerEmail,
 	})
 	if err != nil {
 		if errors.Is(err, domain.ErrInvalidAmount) {

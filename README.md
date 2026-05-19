@@ -1,185 +1,160 @@
-# AP2 Assignment 2 - gRPC Migration & Contract-First Development
+# AP2 Assignment 4 – Performance Optimization & External Integrations
 
-## What was migrated
+**Student:** Taubakabyl Nurlybek | **Group:** SE-2401
 
-This project now uses gRPC for internal service-to-service communication:
+Builds on Assignment 3 (Order, Payment, Notification microservices with RabbitMQ).
 
-- Order Service remains a REST API for end users (`POST /orders`, etc.).
-- Order Service calls Payment Service through gRPC (`ProcessPayment`).
-- Payment Service runs a gRPC server and returns typed protobuf responses.
-- Order Service also runs a gRPC server with server-side streaming:
-  - `SubscribeToOrderUpdates(OrderRequest) returns (stream OrderStatusUpdate)`
+---
 
-Business logic in domain/usecase layers remains unchanged; migration is done in transport/composition layers.
+## What's New in Assignment 4
 
-## Contract-First setup
+| Feature | Location | Pattern |
+|---|---|---|
+| Redis Cache-Aside | `order-service/internal/cache/` | Cache-Aside |
+| Cache Invalidation | `order-service/internal/usecase/order.go` | Atomic invalidation on every write |
+| Rate Limiter | `order-service/internal/middleware/rate_limiter.go` | Sliding window counter in Redis |
+| Email Adapter | `notification-service/internal/provider/` | Adapter Pattern |
+| Exponential Backoff | `notification-service/internal/retry/backoff.go` | Doubles delay each retry |
+| Redis Idempotency | `notification-service/internal/idempotency/redis.go` | Payment ID key in Redis |
 
-### Repository A (proto contracts)
-- https://github.com/nazarrbek/ap2-proto-contracts
+---
 
-### Repository B (generated code)
-- https://github.com/nazarrbek/ap2-generated-contracts
+## 1. Caching Strategy (Order Service)
 
-In this workspace, generated contracts are represented as shared modules:
+### Cache-Aside Pattern
 
-- `order-contract/`
-- `payment-contract/`
-
-Proto sources:
-
-- `proto/order.proto`
-- `proto/payment.proto`
-
-## gRPC contracts
-
-### Payment Service
-- Service: `payment.PaymentService`
-- RPC: `ProcessPayment(PaymentRequest) returns (PaymentResponse)`
-- Uses `int64` for money and `google.protobuf.Timestamp` for `processed_at`
-
-### Order Service Streaming
-- Service: `order.OrderService`
-- RPC: `SubscribeToOrderUpdates(OrderRequest) returns (stream OrderStatusUpdate)`
-- Stream sends:
-  - initial current status
-  - every real status change detected from DB-backed order reads
-
-## High-level architecture
-
-```text
-Client
-  -> REST (Gin)
-Order Service :8080
-  -> gRPC Client (PaymentService.ProcessPayment)
-Payment Service :50051
-
-Streaming client/frontend
-  -> gRPC SubscribeToOrderUpdates
-Order Service :50052
-  -> polls real order state from repository/usecase and pushes only status changes
+```
+GET /orders/:id
+       │
+       ▼
+  Redis GET key=order:{id}
+       │
+  ┌────┴────┐
+  │  HIT?   │──YES──► return cached order (fast path, ~1ms)
+  └────┬────┘
+       │ NO (miss)
+       ▼
+  PostgreSQL SELECT
+       │
+       ▼
+  Redis SET key=order:{id} TTL=5m
+       │
+       ▼
+  return order
 ```
 
-## Environment variables
+### Cache Invalidation Strategy
 
-### Order Service
-- `DB_HOST` (default: `localhost`)
-- `DB_PORT` (default: `5432`)
-- `DB_USER` (default: `postgres`)
-- `DB_PASSWORD` (default: `postgres`)
-- `DB_NAME` (default: `orders_db`)
-- `SERVER_PORT` (default: `8080`) - REST
-- `GRPC_PORT` (default: `50052`) - order streaming gRPC server
-- `PAYMENT_GRPC_ADDR` (default: `localhost:50051`) - payment gRPC endpoint
+Invalidation happens **atomically after every database write** — before the HTTP response is returned. This prevents stale data scenarios (e.g. showing "Pending" for a paid order).
 
-### Payment Service
-- `DB_HOST` (default: `localhost`)
-- `DB_PORT` (default: `5432`)
-- `DB_USER` (default: `postgres`)
-- `DB_PASSWORD` (default: `postgres`)
-- `DB_NAME` (default: `payments_db`)
-- `SERVER_PORT` (default: `8081`) - REST
-- `GRPC_PORT` (default: `50051`) - payment gRPC server
+**Invalidation trigger points:**
+- `CreateOrder` → after payment status update
+- `CancelOrder` → after status set to "cancelled"
+- Any payment failure → after status set to "failed"
 
-## Run with Docker Compose
+**TTL:** 5 minutes (configurable via `CACHE_TTL` env var). Acts as a safety net for any edge cases.
+
+---
+
+## 2. External Provider Adapter (Notification Service)
+
+The `EmailSender` interface decouples business logic from the email provider:
+
+```go
+type EmailSender interface {
+    Send(ctx context.Context, msg EmailMessage) error
+}
+```
+
+Two implementations:
+
+| Mode | `PROVIDER_MODE` | Implementation | Notes |
+|---|---|---|---|
+| Simulated | `SIMULATED` (default) | `SimulatedProvider` | 30% random failure rate + 50-200ms latency to test retry logic |
+| Real | `REAL` | `SMTPProvider` | Connects to Mailjet/SMTP via `SMTP_*` env vars |
+
+The provider is selected at startup via `PROVIDER_MODE` — **no code change required to switch**.
+
+---
+
+## 3. Background Jobs – Retry & Idempotency
+
+### Exponential Backoff
+
+```
+Attempt 1  → fails → wait 2s
+Attempt 2  → fails → wait 4s
+Attempt 3  → fails → wait 8s
+Attempt 4  → fails → wait 16s
+Attempt 5  → fails → NACK → Dead Letter Queue
+```
+
+Formula: `delay = min(baseDelay × 2^(attempt-1), maxDelay)`
+
+Config (all via `.env`):
+- `RETRY_MAX_ATTEMPTS=5`
+- `RETRY_BASE_DELAY=2s`
+- `RETRY_MAX_DELAY=30s`
+
+### Idempotency (Redis)
+
+Before sending, the worker checks Redis:
+```
+Redis GET  notification:idempotency:{payment_id}
+    HIT  → skip (already processed, return false, nil)
+    MISS → send email → Redis SET notification:idempotency:{payment_id} "processed" TTL=24h
+```
+
+This prevents duplicate emails when RabbitMQ redelivers a message after a crash.
+
+---
+
+## 4. Bonus – Rate Limiter (Redis Sliding Window)
+
+`GET /orders/:id`, `POST /orders`, etc. are protected by a per-IP rate limiter:
+- **Default:** 10 requests per minute
+- **Returns:** `HTTP 429 Too Many Requests` when exceeded
+- **Headers:** `X-RateLimit-Limit`, `X-RateLimit-Remaining`
+
+Implementation uses Redis `INCR` + `EXPIRE` in a pipeline (atomic operation).
+
+---
+
+## Running Locally
 
 ```bash
+# 1. Start everything
 docker compose up --build
-```
 
-Ports:
-- Order REST: `8080`
-- Payment REST: `8081`
-- Payment gRPC: `50051`
-- Order gRPC streaming: `50052`
-
-## Run locally
-
-```bash
-# Terminal 1
-cd payment-service
-GRPC_PORT=50051 go run ./cmd/payment-service
-
-# Terminal 2
-cd order-service
-PAYMENT_GRPC_ADDR=localhost:50051 GRPC_PORT=50052 go run ./cmd/order-service
-```
-
-## Protobuf generation (local fallback)
-
-```bash
-protoc \
-  --plugin=protoc-gen-go=/Users/nazarbek/go/bin/protoc-gen-go \
-  --plugin=protoc-gen-go-grpc=/Users/nazarbek/go/bin/protoc-gen-go-grpc \
-  --go_out=. \
-  --go-grpc_out=. \
-  proto/payment.proto proto/order.proto
-```
-
-## Test: REST order creation with internal gRPC payment call
-
-```bash
+# 2. Create an order
 curl -X POST http://localhost:8080/orders \
   -H "Content-Type: application/json" \
-  -d '{"customer_id":"c-1","item_name":"Laptop","amount":50000}'
+  -d '{"customer_id":"cust-1","item_name":"Laptop","amount":99900}'
+
+# 3. Get order (first call: DB, second call: Redis cache HIT)
+curl http://localhost:8080/orders/{id}
+
+# 4. Test rate limiter (run 11+ times quickly)
+for i in $(seq 1 12); do curl -s -o /dev/null -w "%{http_code}\n" http://localhost:8080/orders/fake; done
+
+# 5. Monitor logs
+docker compose logs -f notification-service
+docker compose logs -f order-service
 ```
 
-Expected behavior:
-- REST request succeeds on Order Service.
-- Order Service calls Payment Service over gRPC.
-- Final order status becomes `Paid` or `Failed` (for declined cases).
+---
 
-## Test: server-side streaming with real DB-backed updates
+## Environment Variables
 
-1) Create order and copy `id`:
+See `.env` for all configuration. Key variables:
 
-```bash
-curl -X POST http://localhost:8080/orders \
-  -H "Content-Type: application/json" \
-  -d '{"customer_id":"c-2","item_name":"Book","amount":900}'
-```
-
-2) Start stream subscriber:
-
-```bash
-cd order-service
-go run ./cmd/order-stream-client --addr localhost:50052 --order-id <ORDER_ID>
-```
-
-3) Trigger status change through business API (updates DB):
-
-```bash
-curl -X PATCH http://localhost:8080/orders/<ORDER_ID>/cancel
-```
-
-Expected streaming result:
-- First message: current order status.
-- Next message appears immediately after DB status change (e.g., `Cancelled`).
-
-## Bonus: gRPC interceptor
-
-Payment Service includes a unary interceptor that logs:
-- full gRPC method name
-- request duration
-- error value
-
-Example log:
-
-```text
-grpc method=/payment.PaymentService/ProcessPayment duration=1.8ms err=<nil>
-```
-
-## Deliverables checklist
-
-- Updated Order and Payment services with gRPC migration
-- README with contract repo links and run instructions
-- Updated architecture section (REST external + gRPC internal)
-- Evidence to attach in report/LMS:
-  - successful gRPC payment call (via order creation)
-  - successful streaming updates on real status change
-
-## Extra files for defense
-
-- Architecture diagram: docs/ARCHITECTURE.md
-- Execution evidence from real run: docs/EVIDENCE.md
-- Defense checklist and script: docs/DEFENSE.md
-
+| Variable | Default | Description |
+|---|---|---|
+| `CACHE_TTL` | `5m` | Order cache TTL in Redis |
+| `RATE_LIMIT_REQUESTS` | `10` | Max requests per window per IP |
+| `RATE_LIMIT_WINDOW` | `1m` | Rate limit window duration |
+| `PROVIDER_MODE` | `SIMULATED` | Email provider: `REAL` or `SIMULATED` |
+| `RETRY_MAX_ATTEMPTS` | `5` | Max notification send attempts |
+| `RETRY_BASE_DELAY` | `2s` | Initial retry delay |
+| `RETRY_MAX_DELAY` | `30s` | Maximum retry delay cap |
+| `IDEMPOTENCY_TTL` | `24h` | Redis key TTL for processed payments |

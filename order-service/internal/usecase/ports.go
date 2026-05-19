@@ -14,6 +14,14 @@ type OrderRepository interface {
 	GetRecent(ctx context.Context, limit int) ([]*domain.Order, error)
 }
 
+// OrderCache is the port that the use-case layer uses for caching.
+// It is implemented by cache.RedisOrderCache in the infrastructure layer.
+type OrderCache interface {
+	Get(ctx context.Context, id string) (*domain.Order, error)
+	Set(ctx context.Context, order *domain.Order) error
+	Delete(ctx context.Context, id string) error
+}
+
 type PaymentClient interface {
 	Authorize(ctx context.Context, orderID string, amount int64) (string, string, error)
 	// returns (transactionID, status, error)

@@ -1,10 +1,10 @@
-FROM golang:1.24-alpine AS builder
+FROM golang:1.22-alpine AS builder
 WORKDIR /app
 COPY order-contract ./order-contract
 COPY payment-contract ./payment-contract
-COPY order-service/go.mod order-service/go.sum ./order-service/
+COPY order-service/go.mod ./order-service/
 WORKDIR /app/order-service
-RUN go mod download
+RUN go mod tidy && go mod download
 COPY order-service ./
 RUN go build -o /app/order-service-bin ./cmd/order-service
 

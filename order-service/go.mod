@@ -1,10 +1,11 @@
 module order-service
 
-go 1.24.0
+go 1.22
 
 require (
 	github.com/gin-gonic/gin v1.10.0
 	github.com/lib/pq v1.10.9
+	github.com/redis/go-redis/v9 v9.7.3
 	google.golang.org/grpc v1.76.0
 	google.golang.org/protobuf v1.36.11
 	order-contract v0.0.0
@@ -16,10 +17,13 @@ replace order-contract => ../order-contract
 replace payment-contract => ../payment-contract
 
 require (
+	github.com/bsm/gomaxprocs v1.0.0 // indirect
 	github.com/bytedance/sonic v1.11.6 // indirect
 	github.com/bytedance/sonic/loader v0.1.1 // indirect
+	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/cloudwego/base64x v0.1.4 // indirect
 	github.com/cloudwego/iasm v0.2.0 // indirect
+	github.com/dgryski/go-rendezvous v0.0.0-20200823014737-9f7001d12a5f // indirect
 	github.com/gabriel-vasile/mimetype v1.4.3 // indirect
 	github.com/gin-contrib/sse v0.1.0 // indirect
 	github.com/go-playground/locales v0.14.1 // indirect

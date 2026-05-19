@@ -10,6 +10,7 @@ import (
 	"google.golang.org/grpc"
 
 	paymentpb "payment-contract/payment"
+	"payment-service/internal/messaging"
 	"payment-service/internal/repository"
 	transportgrpc "payment-service/internal/transport/grpc"
 	transporthttp "payment-service/internal/transport/http"
@@ -20,12 +21,17 @@ type App struct {
 	Router     *gin.Engine
 	GRPCServer *grpc.Server
 	DB         *sql.DB
+	Publisher  *messaging.Publisher
 }
 
-func NewApp(db *sql.DB) *App {
-	// Composition Root: manual dependency injection
+func NewApp(db *sql.DB, amqpURL string) (*App, error) {
+	pub, err := messaging.NewPublisher(amqpURL)
+	if err != nil {
+		return nil, err
+	}
+
 	paymentRepo := repository.NewPostgresPaymentRepository(db)
-	paymentUC := usecase.NewPaymentUseCase(paymentRepo)
+	paymentUC := usecase.NewPaymentUseCase(paymentRepo, pub)
 	handler := transporthttp.NewPaymentHandler(paymentUC)
 	grpcHandler := transportgrpc.NewPaymentGRPCServer(paymentUC)
 
@@ -40,5 +46,5 @@ func NewApp(db *sql.DB) *App {
 	}))
 	paymentpb.RegisterPaymentServiceServer(grpcServer, grpcHandler)
 
-	return &App{Router: router, GRPCServer: grpcServer, DB: db}
+	return &App{Router: router, GRPCServer: grpcServer, DB: db, Publisher: pub}, nil
 }

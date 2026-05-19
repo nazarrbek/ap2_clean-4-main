@@ -4,20 +4,24 @@ import (
 	"context"
 	"crypto/rand"
 	"fmt"
+	"log"
 	"payment-service/internal/domain"
+	"payment-service/internal/messaging"
 )
 
 type PaymentUseCase struct {
-	repo PaymentRepository
+	repo      PaymentRepository
+	publisher EventPublisher
 }
 
-func NewPaymentUseCase(repo PaymentRepository) *PaymentUseCase {
-	return &PaymentUseCase{repo: repo}
+func NewPaymentUseCase(repo PaymentRepository, publisher EventPublisher) *PaymentUseCase {
+	return &PaymentUseCase{repo: repo, publisher: publisher}
 }
 
 type AuthorizeInput struct {
-	OrderID string
-	Amount  int64
+	OrderID       string
+	Amount        int64
+	CustomerEmail string
 }
 
 type AuthorizeOutput struct {
@@ -33,8 +37,21 @@ func (uc *PaymentUseCase) Authorize(ctx context.Context, input AuthorizeInput) (
 	payment.ID = generateID()
 	payment.TransactionID = generateTransactionID()
 
+	// Persist first (DB transaction committed)
 	if err := uc.repo.Create(ctx, payment); err != nil {
 		return nil, err
+	}
+
+	// Only publish after successful DB commit
+	event := messaging.PaymentEvent{
+		EventID:       payment.ID,
+		OrderID:       payment.OrderID,
+		Amount:        payment.Amount,
+		CustomerEmail: input.CustomerEmail,
+		Status:        payment.Status,
+	}
+	if err := uc.publisher.Publish(ctx, event); err != nil {
+		log.Printf("[PaymentUseCase] Warning: failed to publish event for order %s: %v", input.OrderID, err)
 	}
 
 	return &AuthorizeOutput{Payment: payment}, nil
